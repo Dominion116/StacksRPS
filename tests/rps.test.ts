@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { Cl, ClarityType, cvToValue } from "@stacks/transactions";
+import { describe, it, expect } from "vitest";
+import { Cl, ClarityType } from "@stacks/transactions";
 import { initSimnet } from "@hirosystems/clarinet-sdk";
+import { createHash, randomBytes } from "node:crypto";
 
 // ================================================================
 // Setup
@@ -43,36 +44,40 @@ const ERR_GAME_OVER        = Cl.error(Cl.uint(108));
 // ================================================================
 
 // sha256(moveBytes || salt) — mirrors the Clarity commit scheme
-async function makeCommit(move: number, salt: Uint8Array): Promise<Uint8Array> {
-  const moveBytes = new Uint8Array([move]);
-  const combined  = new Uint8Array([...moveBytes, ...salt]);
-  const digest    = await crypto.subtle.digest("SHA-256", combined);
-  return new Uint8Array(digest);
+// Uses node:crypto — works with ESM + bundler moduleResolution
+function makeCommit(move: number, salt: Uint8Array): Uint8Array {
+  const combined = new Uint8Array(1 + salt.length);
+  combined[0] = move;
+  combined.set(salt, 1);
+  return new Uint8Array(createHash("sha256").update(combined).digest());
 }
 
 function randomSalt(): Uint8Array {
-  return crypto.getRandomValues(new Uint8Array(32));
+  return new Uint8Array(randomBytes(32));
 }
 
-// Create a game as `player` with `move`, returns { gameId, salt }
-async function createGame(player: string, move: number) {
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Create a game as `player` with `move`, returns { gameId, salt, commit, result }
+function createGame(player: string, move: number) {
   const salt   = randomSalt();
-  const commit = await makeCommit(move, salt);
+  const commit = makeCommit(move, salt);
   const result = simnet.callPublicFn(
     CONTRACT,
     "create-game",
     [Cl.buffer(commit)],
     player
   );
-  // Extract the returned game-id from the ok value
   const gameId = Number((result.result as any).value.value);
   return { gameId, salt, commit, result };
 }
 
-// Join a game as `player` with `move`, returns { salt }
-async function joinGame(gameId: number, player: string, move: number) {
+// Join a game as `player` with `move`, returns { salt, commit, result }
+function joinGame(gameId: number, player: string, move: number) {
   const salt   = randomSalt();
-  const commit = await makeCommit(move, salt);
+  const commit = makeCommit(move, salt);
   const result = simnet.callPublicFn(
     CONTRACT,
     "join-game",
@@ -83,12 +88,7 @@ async function joinGame(gameId: number, player: string, move: number) {
 }
 
 // Reveal a move for a player
-async function reveal(
-  gameId: number,
-  player: string,
-  move: number,
-  salt: Uint8Array
-) {
+function reveal(gameId: number, player: string, move: number, salt: Uint8Array) {
   return simnet.callPublicFn(
     CONTRACT,
     "reveal",
@@ -98,11 +98,11 @@ async function reveal(
 }
 
 // Run a complete game from start to finish, returns the final reveal result
-async function playFullGame(p1Move: number, p2Move: number) {
-  const { gameId, salt: s1 } = await createGame(P1, p1Move);
-  const { salt: s2 }         = await joinGame(gameId, P2, p2Move);
-  await reveal(gameId, P1, p1Move, s1);
-  const finalReveal = await reveal(gameId, P2, p2Move, s2);
+function playFullGame(p1Move: number, p2Move: number) {
+  const { gameId, salt: s1 } = createGame(P1, p1Move);
+  const { salt: s2 }         = joinGame(gameId, P2, p2Move);
+  reveal(gameId, P1, p1Move, s1);
+  const finalReveal = reveal(gameId, P2, p2Move, s2);
   return { gameId, finalReveal };
 }
 
@@ -126,14 +126,14 @@ function getStats(player: string) {
   );
 }
 
-// Pull a named uint field out of a Clarity tuple response
+// Pull a named uint field out of a Clarity player-stats tuple
 function statField(player: string, field: string): bigint {
   const res  = getStats(player);
   const data = (res.result as any).value.data;
   return data[field].value;
 }
 
-// Pull a named field from get-game tuple response
+// Pull a named field from a get-game tuple response
 function gameField(gameId: number, field: string): any {
   const res  = getGame(gameId);
   const data = (res.result as any).value.data;
@@ -151,53 +151,53 @@ describe("StacksRPS — rps.clar", () => {
   // --------------------------------------------------------------
 
   describe("create-game", () => {
-    it("returns game id starting at 0", async () => {
-      const { result } = await createGame(P1, MOVE_ROCK);
+    it("returns game id starting at 0", () => {
+      const { result } = createGame(P1, MOVE_ROCK);
       expect(result.result).toStrictEqual(Cl.ok(Cl.uint(0)));
     });
 
-    it("increments game id with each new game", async () => {
-      await createGame(P1, MOVE_ROCK);
-      const { result } = await createGame(P2, MOVE_PAPER);
+    it("increments game id with each new game", () => {
+      createGame(P1, MOVE_ROCK);
+      const { result } = createGame(P2, MOVE_PAPER);
       expect(result.result).toStrictEqual(Cl.ok(Cl.uint(1)));
     });
 
-    it("sets status to WAITING (u0)", async () => {
-      const { gameId } = await createGame(P1, MOVE_ROCK);
+    it("sets status to WAITING (u0)", () => {
+      const { gameId } = createGame(P1, MOVE_ROCK);
       expect(gameField(gameId, "status")).toStrictEqual(Cl.uint(0));
     });
 
-    it("sets p1 to tx-sender", async () => {
-      const { gameId } = await createGame(P1, MOVE_ROCK);
+    it("sets p1 to tx-sender", () => {
+      const { gameId } = createGame(P1, MOVE_ROCK);
       expect(gameField(gameId, "p1")).toStrictEqual(Cl.principal(P1));
     });
 
-    it("sets p2 to none", async () => {
-      const { gameId } = await createGame(P1, MOVE_ROCK);
+    it("sets p2 to none", () => {
+      const { gameId } = createGame(P1, MOVE_ROCK);
       expect(gameField(gameId, "p2")).toStrictEqual(Cl.none());
     });
 
-    it("sets p1-move and p2-move to MOVE-NONE (u0)", async () => {
-      const { gameId } = await createGame(P1, MOVE_ROCK);
+    it("sets p1-move and p2-move to MOVE-NONE (u0)", () => {
+      const { gameId } = createGame(P1, MOVE_ROCK);
       expect(gameField(gameId, "p1-move")).toStrictEqual(Cl.uint(0));
       expect(gameField(gameId, "p2-move")).toStrictEqual(Cl.uint(0));
     });
 
-    it("sets winner to none initially", async () => {
-      const { gameId } = await createGame(P1, MOVE_ROCK);
+    it("sets winner to none initially", () => {
+      const { gameId } = createGame(P1, MOVE_ROCK);
       expect(gameField(gameId, "winner")).toStrictEqual(Cl.none());
     });
 
-    it("stores the correct commit hash", async () => {
+    it("stores the correct commit hash", () => {
       const salt   = randomSalt();
-      const commit = await makeCommit(MOVE_ROCK, salt);
+      const commit = makeCommit(MOVE_ROCK, salt);
       simnet.callPublicFn(CONTRACT, "create-game", [Cl.buffer(commit)], P1);
       expect(gameField(0, "p1-commit")).toStrictEqual(Cl.buffer(commit));
     });
 
-    it("increments get-total-games after creation", async () => {
-      await createGame(P1, MOVE_ROCK);
-      await createGame(P2, MOVE_PAPER);
+    it("increments get-total-games after creation", () => {
+      createGame(P1, MOVE_ROCK);
+      createGame(P2, MOVE_PAPER);
       const total = simnet.callReadOnlyFn(CONTRACT, "get-total-games", [], DEPLOYER);
       expect(total.result).toStrictEqual(Cl.uint(2));
     });
@@ -208,52 +208,52 @@ describe("StacksRPS — rps.clar", () => {
   // --------------------------------------------------------------
 
   describe("join-game", () => {
-    it("returns ok true on successful join", async () => {
-      const { gameId } = await createGame(P1, MOVE_ROCK);
-      const { result } = await joinGame(gameId, P2, MOVE_PAPER);
+    it("returns ok true on successful join", () => {
+      const { gameId } = createGame(P1, MOVE_ROCK);
+      const { result } = joinGame(gameId, P2, MOVE_PAPER);
       expect(result.result).toStrictEqual(Cl.ok(Cl.bool(true)));
     });
 
-    it("sets p2 to joining player", async () => {
-      const { gameId } = await createGame(P1, MOVE_ROCK);
-      await joinGame(gameId, P2, MOVE_PAPER);
+    it("sets p2 to joining player", () => {
+      const { gameId } = createGame(P1, MOVE_ROCK);
+      joinGame(gameId, P2, MOVE_PAPER);
       expect(gameField(gameId, "p2")).toStrictEqual(Cl.some(Cl.principal(P2)));
     });
 
-    it("sets status to ACTIVE (u1) after joining", async () => {
-      const { gameId } = await createGame(P1, MOVE_ROCK);
-      await joinGame(gameId, P2, MOVE_PAPER);
+    it("sets status to ACTIVE (u1) after joining", () => {
+      const { gameId } = createGame(P1, MOVE_ROCK);
+      joinGame(gameId, P2, MOVE_PAPER);
       expect(gameField(gameId, "status")).toStrictEqual(Cl.uint(1));
     });
 
-    it("stores p2 commit hash", async () => {
-      const { gameId }       = await createGame(P1, MOVE_ROCK);
-      const { salt, commit } = await joinGame(gameId, P2, MOVE_PAPER);
+    it("stores p2 commit hash", () => {
+      const { gameId }       = createGame(P1, MOVE_ROCK);
+      const { commit } = joinGame(gameId, P2, MOVE_PAPER);
       expect(gameField(gameId, "p2-commit")).toStrictEqual(Cl.some(Cl.buffer(commit)));
     });
 
-    it("fails with ERR-GAME-NOT-FOUND for unknown game id", async () => {
-      const { result } = await joinGame(999, P2, MOVE_PAPER);
+    it("fails with ERR-GAME-NOT-FOUND for unknown game id", () => {
+      const { result } = joinGame(999, P2, MOVE_PAPER);
       expect(result.result).toStrictEqual(ERR_GAME_NOT_FOUND);
     });
 
-    it("fails with ERR-SAME-PLAYER if p1 tries to join own game", async () => {
-      const { gameId } = await createGame(P1, MOVE_ROCK);
-      const { result } = await joinGame(gameId, P1, MOVE_PAPER);
+    it("fails with ERR-SAME-PLAYER if p1 tries to join own game", () => {
+      const { gameId } = createGame(P1, MOVE_ROCK);
+      const { result } = joinGame(gameId, P1, MOVE_PAPER);
       expect(result.result).toStrictEqual(ERR_SAME_PLAYER);
     });
 
-    it("fails with ERR-GAME-FULL if a third player tries to join", async () => {
-      const { gameId } = await createGame(P1, MOVE_ROCK);
-      await joinGame(gameId, P2, MOVE_PAPER);
-      const { result } = await joinGame(gameId, P3, MOVE_SCISSORS);
+    it("fails with ERR-GAME-FULL if a third player tries to join", () => {
+      const { gameId } = createGame(P1, MOVE_ROCK);
+      joinGame(gameId, P2, MOVE_PAPER);
+      const { result } = joinGame(gameId, P3, MOVE_SCISSORS);
       expect(result.result).toStrictEqual(ERR_GAME_FULL);
     });
 
-    it("fails with ERR-GAME-FULL if same p2 tries to join again", async () => {
-      const { gameId } = await createGame(P1, MOVE_ROCK);
-      await joinGame(gameId, P2, MOVE_PAPER);
-      const { result } = await joinGame(gameId, P2, MOVE_SCISSORS);
+    it("fails with ERR-GAME-FULL if same p2 tries to join again", () => {
+      const { gameId } = createGame(P1, MOVE_ROCK);
+      joinGame(gameId, P2, MOVE_PAPER);
+      const { result } = joinGame(gameId, P2, MOVE_SCISSORS);
       expect(result.result).toStrictEqual(ERR_GAME_FULL);
     });
   });
@@ -263,92 +263,92 @@ describe("StacksRPS — rps.clar", () => {
   // --------------------------------------------------------------
 
   describe("reveal", () => {
-    it("returns u99 (waiting) after first reveal", async () => {
-      const { gameId, salt: s1 } = await createGame(P1, MOVE_ROCK);
-      await joinGame(gameId, P2, MOVE_PAPER);
-      const r = await reveal(gameId, P1, MOVE_ROCK, s1);
+    it("returns u99 (waiting) after first reveal", () => {
+      const { gameId, salt: s1 } = createGame(P1, MOVE_ROCK);
+      joinGame(gameId, P2, MOVE_PAPER);
+      const r = reveal(gameId, P1, MOVE_ROCK, s1);
       expect(r.result).toStrictEqual(Cl.ok(Cl.uint(99)));
     });
 
-    it("fails with ERR-NOT-READY if p2 hasn't joined yet", async () => {
-      const { gameId, salt: s1 } = await createGame(P1, MOVE_ROCK);
-      const r = await reveal(gameId, P1, MOVE_ROCK, s1);
+    it("fails with ERR-NOT-READY if p2 hasn't joined yet", () => {
+      const { gameId, salt: s1 } = createGame(P1, MOVE_ROCK);
+      const r = reveal(gameId, P1, MOVE_ROCK, s1);
       expect(r.result).toStrictEqual(ERR_NOT_READY);
     });
 
-    it("fails with ERR-GAME-NOT-FOUND for unknown game id", async () => {
+    it("fails with ERR-GAME-NOT-FOUND for unknown game id", () => {
       const salt = randomSalt();
-      const r = await reveal(999, P1, MOVE_ROCK, salt);
+      const r = reveal(999, P1, MOVE_ROCK, salt);
       expect(r.result).toStrictEqual(ERR_GAME_NOT_FOUND);
     });
 
-    it("fails with ERR-NOT-YOUR-GAME for a stranger", async () => {
-      const { gameId, salt: s1 } = await createGame(P1, MOVE_ROCK);
-      await joinGame(gameId, P2, MOVE_PAPER);
-      const r = await reveal(gameId, P3, MOVE_ROCK, s1);
+    it("fails with ERR-NOT-YOUR-GAME for a stranger", () => {
+      const { gameId, salt: s1 } = createGame(P1, MOVE_ROCK);
+      joinGame(gameId, P2, MOVE_PAPER);
+      const r = reveal(gameId, P3, MOVE_ROCK, s1);
       expect(r.result).toStrictEqual(ERR_NOT_YOUR_GAME);
     });
 
-    it("fails with ERR-INVALID-MOVE for move u0 (NONE)", async () => {
-      const { gameId, salt: s1 } = await createGame(P1, MOVE_ROCK);
-      await joinGame(gameId, P2, MOVE_PAPER);
-      const r = await reveal(gameId, P1, 0, s1);
+    it("fails with ERR-INVALID-MOVE for move u0 (NONE)", () => {
+      const { gameId, salt: s1 } = createGame(P1, MOVE_ROCK);
+      joinGame(gameId, P2, MOVE_PAPER);
+      const r = reveal(gameId, P1, 0, s1);
       expect(r.result).toStrictEqual(ERR_INVALID_MOVE);
     });
 
-    it("fails with ERR-INVALID-MOVE for move u4 (out of range)", async () => {
-      const { gameId, salt: s1 } = await createGame(P1, MOVE_ROCK);
-      await joinGame(gameId, P2, MOVE_PAPER);
-      const r = await reveal(gameId, P1, 4, s1);
+    it("fails with ERR-INVALID-MOVE for move u4 (out of range)", () => {
+      const { gameId, salt: s1 } = createGame(P1, MOVE_ROCK);
+      joinGame(gameId, P2, MOVE_PAPER);
+      const r = reveal(gameId, P1, 4, s1);
       expect(r.result).toStrictEqual(ERR_INVALID_MOVE);
     });
 
-    it("fails with ERR-BAD-COMMIT if p1 reveals wrong move", async () => {
-      const { gameId, salt: s1 } = await createGame(P1, MOVE_ROCK);
-      await joinGame(gameId, P2, MOVE_PAPER);
+    it("fails with ERR-BAD-COMMIT if p1 reveals wrong move", () => {
+      const { gameId, salt: s1 } = createGame(P1, MOVE_ROCK);
+      joinGame(gameId, P2, MOVE_PAPER);
       // Committed Rock but tries to reveal Paper
-      const r = await reveal(gameId, P1, MOVE_PAPER, s1);
+      const r = reveal(gameId, P1, MOVE_PAPER, s1);
       expect(r.result).toStrictEqual(ERR_BAD_COMMIT);
     });
 
-    it("fails with ERR-BAD-COMMIT if p1 uses wrong salt", async () => {
-      const { gameId } = await createGame(P1, MOVE_ROCK);
-      await joinGame(gameId, P2, MOVE_PAPER);
+    it("fails with ERR-BAD-COMMIT if p1 uses wrong salt", () => {
+      const { gameId } = createGame(P1, MOVE_ROCK);
+      joinGame(gameId, P2, MOVE_PAPER);
       const wrongSalt = randomSalt();
-      const r = await reveal(gameId, P1, MOVE_ROCK, wrongSalt);
+      const r = reveal(gameId, P1, MOVE_ROCK, wrongSalt);
       expect(r.result).toStrictEqual(ERR_BAD_COMMIT);
     });
 
-    it("fails with ERR-BAD-COMMIT if p2 reveals wrong move", async () => {
-      const { gameId, salt: s1 } = await createGame(P1, MOVE_ROCK);
-      const { salt: s2 }         = await joinGame(gameId, P2, MOVE_PAPER);
-      await reveal(gameId, P1, MOVE_ROCK, s1);
+    it("fails with ERR-BAD-COMMIT if p2 reveals wrong move", () => {
+      const { gameId, salt: s1 } = createGame(P1, MOVE_ROCK);
+      const { salt: s2 }         = joinGame(gameId, P2, MOVE_PAPER);
+      reveal(gameId, P1, MOVE_ROCK, s1);
       // Committed Paper but tries to reveal Scissors
-      const r = await reveal(gameId, P2, MOVE_SCISSORS, s2);
+      const r = reveal(gameId, P2, MOVE_SCISSORS, s2);
       expect(r.result).toStrictEqual(ERR_BAD_COMMIT);
     });
 
-    it("fails with ERR-ALREADY-REVEALED if p1 reveals twice", async () => {
-      const { gameId, salt: s1 } = await createGame(P1, MOVE_ROCK);
-      await joinGame(gameId, P2, MOVE_PAPER);
-      await reveal(gameId, P1, MOVE_ROCK, s1);
-      const r = await reveal(gameId, P1, MOVE_ROCK, s1);
+    it("fails with ERR-ALREADY-REVEALED if p1 reveals twice", () => {
+      const { gameId, salt: s1 } = createGame(P1, MOVE_ROCK);
+      joinGame(gameId, P2, MOVE_PAPER);
+      reveal(gameId, P1, MOVE_ROCK, s1);
+      const r = reveal(gameId, P1, MOVE_ROCK, s1);
       expect(r.result).toStrictEqual(ERR_ALREADY_REVEALED);
     });
 
-    it("fails with ERR-ALREADY-REVEALED if p2 reveals twice", async () => {
-      const { gameId, salt: s1 } = await createGame(P1, MOVE_ROCK);
-      const { salt: s2 }         = await joinGame(gameId, P2, MOVE_PAPER);
-      await reveal(gameId, P1, MOVE_ROCK, s1);
-      await reveal(gameId, P2, MOVE_PAPER, s2);
-      const r = await reveal(gameId, P2, MOVE_PAPER, s2);
+    it("fails with ERR-GAME-OVER if p2 reveals twice", () => {
+      const { gameId, salt: s1 } = createGame(P1, MOVE_ROCK);
+      const { salt: s2 }         = joinGame(gameId, P2, MOVE_PAPER);
+      reveal(gameId, P1, MOVE_ROCK, s1);
+      reveal(gameId, P2, MOVE_PAPER, s2);
+      const r = reveal(gameId, P2, MOVE_PAPER, s2);
       expect(r.result).toStrictEqual(ERR_GAME_OVER);
     });
 
-    it("fails with ERR-GAME-OVER if reveal attempted on finished game", async () => {
-      const { gameId, finalReveal } = await playFullGame(MOVE_ROCK, MOVE_SCISSORS);
+    it("fails with ERR-GAME-OVER if reveal attempted on finished game", () => {
+      const { gameId } = playFullGame(MOVE_ROCK, MOVE_SCISSORS);
       const salt = randomSalt();
-      const r = await reveal(gameId, P1, MOVE_ROCK, salt);
+      const r = reveal(gameId, P1, MOVE_ROCK, salt);
       expect(r.result).toStrictEqual(ERR_GAME_OVER);
     });
   });
@@ -358,48 +358,48 @@ describe("StacksRPS — rps.clar", () => {
   // --------------------------------------------------------------
 
   describe("game outcomes", () => {
-    it("Rock vs Rock → draw (u0)", async () => {
-      const { finalReveal } = await playFullGame(MOVE_ROCK, MOVE_ROCK);
+    it("Rock vs Rock → draw (u0)", () => {
+      const { finalReveal } = playFullGame(MOVE_ROCK, MOVE_ROCK);
       expect(finalReveal.result).toStrictEqual(Cl.ok(Cl.uint(0)));
     });
 
-    it("Paper vs Paper → draw (u0)", async () => {
-      const { finalReveal } = await playFullGame(MOVE_PAPER, MOVE_PAPER);
+    it("Paper vs Paper → draw (u0)", () => {
+      const { finalReveal } = playFullGame(MOVE_PAPER, MOVE_PAPER);
       expect(finalReveal.result).toStrictEqual(Cl.ok(Cl.uint(0)));
     });
 
-    it("Scissors vs Scissors → draw (u0)", async () => {
-      const { finalReveal } = await playFullGame(MOVE_SCISSORS, MOVE_SCISSORS);
+    it("Scissors vs Scissors → draw (u0)", () => {
+      const { finalReveal } = playFullGame(MOVE_SCISSORS, MOVE_SCISSORS);
       expect(finalReveal.result).toStrictEqual(Cl.ok(Cl.uint(0)));
     });
 
-    it("Rock vs Scissors → p1 wins (u1)", async () => {
-      const { finalReveal } = await playFullGame(MOVE_ROCK, MOVE_SCISSORS);
+    it("Rock vs Scissors → p1 wins (u1)", () => {
+      const { finalReveal } = playFullGame(MOVE_ROCK, MOVE_SCISSORS);
       expect(finalReveal.result).toStrictEqual(Cl.ok(Cl.uint(1)));
     });
 
-    it("Paper vs Rock → p1 wins (u1)", async () => {
-      const { finalReveal } = await playFullGame(MOVE_PAPER, MOVE_ROCK);
+    it("Paper vs Rock → p1 wins (u1)", () => {
+      const { finalReveal } = playFullGame(MOVE_PAPER, MOVE_ROCK);
       expect(finalReveal.result).toStrictEqual(Cl.ok(Cl.uint(1)));
     });
 
-    it("Scissors vs Paper → p1 wins (u1)", async () => {
-      const { finalReveal } = await playFullGame(MOVE_SCISSORS, MOVE_PAPER);
+    it("Scissors vs Paper → p1 wins (u1)", () => {
+      const { finalReveal } = playFullGame(MOVE_SCISSORS, MOVE_PAPER);
       expect(finalReveal.result).toStrictEqual(Cl.ok(Cl.uint(1)));
     });
 
-    it("Scissors vs Rock → p2 wins (u2)", async () => {
-      const { finalReveal } = await playFullGame(MOVE_SCISSORS, MOVE_ROCK);
+    it("Scissors vs Rock → p2 wins (u2)", () => {
+      const { finalReveal } = playFullGame(MOVE_SCISSORS, MOVE_ROCK);
       expect(finalReveal.result).toStrictEqual(Cl.ok(Cl.uint(2)));
     });
 
-    it("Rock vs Paper → p2 wins (u2)", async () => {
-      const { finalReveal } = await playFullGame(MOVE_ROCK, MOVE_PAPER);
+    it("Rock vs Paper → p2 wins (u2)", () => {
+      const { finalReveal } = playFullGame(MOVE_ROCK, MOVE_PAPER);
       expect(finalReveal.result).toStrictEqual(Cl.ok(Cl.uint(2)));
     });
 
-    it("Paper vs Scissors → p2 wins (u2)", async () => {
-      const { finalReveal } = await playFullGame(MOVE_PAPER, MOVE_SCISSORS);
+    it("Paper vs Scissors → p2 wins (u2)", () => {
+      const { finalReveal } = playFullGame(MOVE_PAPER, MOVE_SCISSORS);
       expect(finalReveal.result).toStrictEqual(Cl.ok(Cl.uint(2)));
     });
   });
@@ -409,40 +409,40 @@ describe("StacksRPS — rps.clar", () => {
   // --------------------------------------------------------------
 
   describe("post-game state", () => {
-    it("sets status to DONE (u2) after both reveal", async () => {
-      const { gameId } = await playFullGame(MOVE_ROCK, MOVE_SCISSORS);
+    it("sets status to DONE (u2) after both reveal", () => {
+      const { gameId } = playFullGame(MOVE_ROCK, MOVE_SCISSORS);
       expect(gameField(gameId, "status")).toStrictEqual(Cl.uint(2));
     });
 
-    it("sets winner to p1 address when p1 wins", async () => {
-      const { gameId } = await playFullGame(MOVE_ROCK, MOVE_SCISSORS);
+    it("sets winner to p1 address when p1 wins", () => {
+      const { gameId } = playFullGame(MOVE_ROCK, MOVE_SCISSORS);
       expect(gameField(gameId, "winner")).toStrictEqual(Cl.some(Cl.principal(P1)));
     });
 
-    it("sets winner to p2 address when p2 wins", async () => {
-      const { gameId } = await playFullGame(MOVE_SCISSORS, MOVE_ROCK);
+    it("sets winner to p2 address when p2 wins", () => {
+      const { gameId } = playFullGame(MOVE_SCISSORS, MOVE_ROCK);
       expect(gameField(gameId, "winner")).toStrictEqual(Cl.some(Cl.principal(P2)));
     });
 
-    it("sets winner to none on a draw", async () => {
-      const { gameId } = await playFullGame(MOVE_PAPER, MOVE_PAPER);
+    it("sets winner to none on a draw", () => {
+      const { gameId } = playFullGame(MOVE_PAPER, MOVE_PAPER);
       expect(gameField(gameId, "winner")).toStrictEqual(Cl.none());
     });
 
-    it("records both moves after full reveal", async () => {
-      const { gameId } = await playFullGame(MOVE_ROCK, MOVE_PAPER);
+    it("records both moves after full reveal", () => {
+      const { gameId } = playFullGame(MOVE_ROCK, MOVE_PAPER);
       expect(gameField(gameId, "p1-move")).toStrictEqual(Cl.uint(MOVE_ROCK));
       expect(gameField(gameId, "p2-move")).toStrictEqual(Cl.uint(MOVE_PAPER));
     });
 
-    it("p2 reveal order can come before p1 — game still resolves", async () => {
-      const { gameId, salt: s1 } = await createGame(P1, MOVE_ROCK);
-      const { salt: s2 }         = await joinGame(gameId, P2, MOVE_SCISSORS);
+    it("p2 can reveal before p1 and game still resolves", () => {
+      const { gameId, salt: s1 } = createGame(P1, MOVE_ROCK);
+      const { salt: s2 }         = joinGame(gameId, P2, MOVE_SCISSORS);
       // p2 reveals first
-      const r1 = await reveal(gameId, P2, MOVE_SCISSORS, s2);
+      const r1 = reveal(gameId, P2, MOVE_SCISSORS, s2);
       expect(r1.result).toStrictEqual(Cl.ok(Cl.uint(99))); // waiting
       // p1 reveals second — should resolve
-      const r2 = await reveal(gameId, P1, MOVE_ROCK, s1);
+      const r2 = reveal(gameId, P1, MOVE_ROCK, s1);
       expect(r2.result).toStrictEqual(Cl.ok(Cl.uint(1))); // p1 wins
     });
   });
@@ -459,35 +459,35 @@ describe("StacksRPS — rps.clar", () => {
       expect(statField(P3, "games-played")).toBe(0n);
     });
 
-    it("win increments winner wins and games-played", async () => {
-      await playFullGame(MOVE_ROCK, MOVE_SCISSORS); // P1 wins
+    it("win increments winner wins and games-played", () => {
+      playFullGame(MOVE_ROCK, MOVE_SCISSORS); // P1 wins
       expect(statField(P1, "wins")).toBe(1n);
       expect(statField(P1, "games-played")).toBe(1n);
     });
 
-    it("win increments loser losses and games-played", async () => {
-      await playFullGame(MOVE_ROCK, MOVE_SCISSORS); // P2 loses
+    it("win increments loser losses and games-played", () => {
+      playFullGame(MOVE_ROCK, MOVE_SCISSORS); // P2 loses
       expect(statField(P2, "losses")).toBe(1n);
       expect(statField(P2, "games-played")).toBe(1n);
     });
 
-    it("draw increments draws for both players", async () => {
-      await playFullGame(MOVE_PAPER, MOVE_PAPER);
+    it("draw increments draws for both players", () => {
+      playFullGame(MOVE_PAPER, MOVE_PAPER);
       expect(statField(P1, "draws")).toBe(1n);
       expect(statField(P2, "draws")).toBe(1n);
     });
 
-    it("draw does not increment wins or losses", async () => {
-      await playFullGame(MOVE_PAPER, MOVE_PAPER);
+    it("draw does not increment wins or losses", () => {
+      playFullGame(MOVE_PAPER, MOVE_PAPER);
       expect(statField(P1, "wins")).toBe(0n);
       expect(statField(P1, "losses")).toBe(0n);
     });
 
-    it("stats accumulate correctly across multiple games", async () => {
-      await playFullGame(MOVE_ROCK, MOVE_SCISSORS); // P1 wins
-      await playFullGame(MOVE_ROCK, MOVE_SCISSORS); // P1 wins
-      await playFullGame(MOVE_PAPER, MOVE_PAPER);   // draw
-      await playFullGame(MOVE_SCISSORS, MOVE_ROCK); // P1 loses
+    it("stats accumulate correctly across multiple games", () => {
+      playFullGame(MOVE_ROCK, MOVE_SCISSORS); // P1 wins
+      playFullGame(MOVE_ROCK, MOVE_SCISSORS); // P1 wins
+      playFullGame(MOVE_PAPER, MOVE_PAPER);   // draw
+      playFullGame(MOVE_SCISSORS, MOVE_ROCK); // P1 loses
 
       expect(statField(P1, "wins")).toBe(2n);
       expect(statField(P1, "losses")).toBe(1n);
@@ -495,8 +495,8 @@ describe("StacksRPS — rps.clar", () => {
       expect(statField(P1, "games-played")).toBe(4n);
     });
 
-    it("p2 stats are tracked independently from p1", async () => {
-      await playFullGame(MOVE_SCISSORS, MOVE_ROCK); // P2 wins
+    it("p2 stats are tracked independently from p1", () => {
+      playFullGame(MOVE_SCISSORS, MOVE_ROCK); // P2 wins
       expect(statField(P2, "wins")).toBe(1n);
       expect(statField(P1, "losses")).toBe(1n);
     });
@@ -512,10 +512,10 @@ describe("StacksRPS — rps.clar", () => {
       expect(r.result).toStrictEqual(Cl.uint(0));
     });
 
-    it("get-total-games returns correct count after multiple creates", async () => {
-      await createGame(P1, MOVE_ROCK);
-      await createGame(P2, MOVE_PAPER);
-      await createGame(P3, MOVE_SCISSORS);
+    it("get-total-games returns correct count after multiple creates", () => {
+      createGame(P1, MOVE_ROCK);
+      createGame(P2, MOVE_PAPER);
+      createGame(P3, MOVE_SCISSORS);
       const r = simnet.callReadOnlyFn(CONTRACT, "get-total-games", [], DEPLOYER);
       expect(r.result).toStrictEqual(Cl.uint(3));
     });
@@ -525,8 +525,8 @@ describe("StacksRPS — rps.clar", () => {
       expect(r.result).toStrictEqual(Cl.none());
     });
 
-    it("get-game returns some after game is created", async () => {
-      const { gameId } = await createGame(P1, MOVE_ROCK);
+    it("get-game returns some after game is created", () => {
+      const { gameId } = createGame(P1, MOVE_ROCK);
       const r = getGame(gameId);
       expect(r.result.type).toBe(ClarityType.OptionalSome);
     });
@@ -566,50 +566,56 @@ describe("StacksRPS — rps.clar", () => {
   // --------------------------------------------------------------
 
   describe("edge cases", () => {
-    it("multiple games can be active simultaneously", async () => {
-      const { gameId: g1, salt: s1a } = await createGame(P1, MOVE_ROCK);
-      const { gameId: g2, salt: s1b } = await createGame(P1, MOVE_PAPER);
-
-      await joinGame(g1, P2, MOVE_SCISSORS);
-      await joinGame(g2, P3, MOVE_ROCK);
-
+    it("multiple games can be active simultaneously", () => {
+      const { gameId: g1 } = createGame(P1, MOVE_ROCK);
+      const { gameId: g2 } = createGame(P1, MOVE_PAPER);
+      joinGame(g1, P2, MOVE_SCISSORS);
+      joinGame(g2, P3, MOVE_ROCK);
       expect(gameField(g1, "status")).toStrictEqual(Cl.uint(1));
       expect(gameField(g2, "status")).toStrictEqual(Cl.uint(1));
     });
 
-    it("game state of one game does not affect another", async () => {
-      const { gameId: g1 } = await playFullGame(MOVE_ROCK, MOVE_SCISSORS);
-      const { gameId: g2, salt: s1 } = await createGame(P1, MOVE_PAPER);
-      await joinGame(g2, P2, MOVE_SCISSORS);
-
-      // g1 is done, g2 is still active
-      expect(gameField(g1, "status")).toStrictEqual(Cl.uint(2));
-      expect(gameField(g2, "status")).toStrictEqual(Cl.uint(1));
+    it("finishing one game does not affect another", () => {
+      const { gameId: g1 } = playFullGame(MOVE_ROCK, MOVE_SCISSORS);
+      const { gameId: g2 } = createGame(P1, MOVE_PAPER);
+      joinGame(g2, P2, MOVE_SCISSORS);
+      expect(gameField(g1, "status")).toStrictEqual(Cl.uint(2)); // done
+      expect(gameField(g2, "status")).toStrictEqual(Cl.uint(1)); // still active
     });
 
-    it("commit is unique per player per game — different salts produce different commits", async () => {
-      const salt1 = randomSalt();
-      const salt2 = randomSalt();
-      const c1 = await makeCommit(MOVE_ROCK, salt1);
-      const c2 = await makeCommit(MOVE_ROCK, salt2);
-      // Same move, different salts → different commits
-      expect(Buffer.from(c1).toString("hex")).not.toBe(Buffer.from(c2).toString("hex"));
+    it("same move with different salts produces different commits", () => {
+      const c1 = makeCommit(MOVE_ROCK, randomSalt());
+      const c2 = makeCommit(MOVE_ROCK, randomSalt());
+      expect(toHex(c1)).not.toBe(toHex(c2));
     });
 
-    it("p3 cannot join a game between p1 and p2 that is already active", async () => {
-      const { gameId } = await createGame(P1, MOVE_ROCK);
-      await joinGame(gameId, P2, MOVE_PAPER);
-      const { result } = await joinGame(gameId, P3, MOVE_SCISSORS);
+    it("p3 cannot join an already active game", () => {
+      const { gameId } = createGame(P1, MOVE_ROCK);
+      joinGame(gameId, P2, MOVE_PAPER);
+      const { result } = joinGame(gameId, P3, MOVE_SCISSORS);
       expect(result.result).toStrictEqual(ERR_GAME_FULL);
     });
 
-    it("p1 cannot reveal with a valid move but wrong game id", async () => {
-      const { salt: s1 } = await createGame(P1, MOVE_ROCK);
-      await createGame(P2, MOVE_PAPER); // game id 1
-      await joinGame(1, P3, MOVE_SCISSORS);
-      // P1 tries to use their salt on a game they're not part of
-      const r = await reveal(1, P1, MOVE_ROCK, s1);
+    it("p1 cannot reveal on a game they are not part of", () => {
+      createGame(P1, MOVE_ROCK);               // game 0
+      const { gameId } = createGame(P2, MOVE_PAPER); // game 1
+      joinGame(gameId, P3, MOVE_SCISSORS);
+      const salt = randomSalt();
+      const r = reveal(gameId, P1, MOVE_ROCK, salt);
       expect(r.result).toStrictEqual(ERR_NOT_YOUR_GAME);
+    });
+
+    it("different moves produce different commit hashes", () => {
+      const salt = randomSalt();
+      const c1 = makeCommit(MOVE_ROCK,     salt);
+      const c2 = makeCommit(MOVE_PAPER,    salt);
+      const c3 = makeCommit(MOVE_SCISSORS, salt);
+      const hashes = new Set([
+        toHex(c1),
+        toHex(c2),
+        toHex(c3),
+      ]);
+      expect(hashes.size).toBe(3);
     });
   });
 });

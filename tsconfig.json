@@ -5,7 +5,10 @@
     "useDefineForClassFields": true,
     "module": "ESNext",
     "lib": ["ESNext"],
+      "lib": ["ESNext", "DOM"],
     "skipLibCheck": true,
+
+      "typeRoots": ["./node_modules/@types", "./types"],
 
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
