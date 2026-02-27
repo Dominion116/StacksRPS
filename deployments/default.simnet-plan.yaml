@@ -61,10 +61,10 @@ genesis:
 plan:
   batches:
   - id: 0
-    transactions:
-    - transaction-type: emulated-contract-publish
-      contract-name: rps
-      emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-      path: contracts/rps.clar
-      clarity-version: 2
     epoch: '2.5'
+    transactions:
+    - emulated-contract-publish:
+        contract-name: rps
+        emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+        path: contracts/rps.clar
+        clarity-version: 2
