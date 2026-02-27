@@ -1,0 +1,18 @@
+---
+id: 0
+name: Mainnet deployment
+network: mainnet
+stacks-node: "https://api.hiro.so"
+bitcoin-node: "http://blockstack:blockstacksystem@bitcoin.blockstack.com:8332"
+plan:
+  batches:
+    - id: 0
+      transactions:
+        - contract-publish:
+            contract-name: rps
+            expected-sender: SP30VGN68PSGVWGNMD0HH2WQMM5T486EK3YGP7Z3Y
+            cost: 81410
+            path: contracts/rps.clar
+            anchor-block-only: true
+            clarity-version: 2
+      epoch: "2.5"
