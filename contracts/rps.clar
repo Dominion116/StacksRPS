@@ -28,7 +28,7 @@
 (define-constant STATUS-ACTIVE   u1)  ;; both joined, waiting for reveals
 (define-constant STATUS-DONE     u2)  ;; game finished
 
-;; Reveal timeout — p2 has 144 blocks (~24hrs on Stacks) to reveal
+;; Reveal timeout -- p2 has 144 blocks (~24hrs on Stacks) to reveal
 (define-constant REVEAL-TIMEOUT u144)
 
 ;; -------------------------------------------------------
@@ -212,7 +212,7 @@
       (p2m (get p2-move updated))
     )
       (if (and (not (is-eq p1m MOVE-NONE)) (not (is-eq p2m MOVE-NONE)))
-        ;; Both revealed — resolve
+        ;; Both revealed -- resolve
         (let (
           (result (get-winner p1m p2m))
           (winner-opt (if (is-eq result u0)
