@@ -63,13 +63,27 @@ export function callContract(functionName: string, args: Arg[]): Promise<string>
 }
 
 export async function readContract(functionName: string, args: Arg[]): Promise<any> {
-  const result = await callReadOnlyFunction({
-    network,
-    contractAddress: CONTRACT_ADDRESS,
-    contractName: CONTRACT_NAME,
-    functionName,
-    functionArgs: args.map(buildCV),
-    senderAddress: CONTRACT_ADDRESS,
+  // Use Hiro API directly to avoid any SDK serialization issues
+  const { serializeCV } = await import("@stacks/transactions");
+  const serializedArgs = args.map(a => {
+    const cv = buildCV(a);
+    return "0x" + Buffer.from(serializeCV(cv)).toString("hex");
   });
-  return cvToJSON(result).value;
+
+  const response = await fetch(
+    `https://api.hiro.so/v2/contracts/call-read/${CONTRACT_ADDRESS}/${CONTRACT_NAME}/${functionName}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sender: CONTRACT_ADDRESS, arguments: serializedArgs }),
+    }
+  );
+
+  const data = await response.json();
+  if (!data.okay) throw new Error(`Contract read failed: ${JSON.stringify(data)}`);
+
+  const { deserializeCV } = await import("@stacks/transactions");
+  const resultBytes = hexToUint8Array(data.result.slice(2));
+  const cv = deserializeCV(resultBytes);
+  return cvToJSON(cv).value;
 }
