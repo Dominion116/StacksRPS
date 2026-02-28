@@ -33,11 +33,18 @@ export function connectWallet(): Promise<WalletState> {
 
 export function disconnectWallet() { userSession.signUserOut(); }
 
+function hexToUint8Array(hex: string): Uint8Array {
+  const arr = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2)
+    arr[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+  return arr;
+}
+
 type Arg = { type: "uint"; value: string } | { type: "buff"; value: string } | { type: "principal"; value: string };
 
 function buildCV(arg: Arg) {
   if (arg.type === "uint") return uintCV(BigInt(arg.value));
-  if (arg.type === "buff") return bufferCV(Buffer.from(arg.value, "hex"));
+  if (arg.type === "buff") return bufferCV(hexToUint8Array(arg.value));
   return principalCV(arg.value);
 }
 
