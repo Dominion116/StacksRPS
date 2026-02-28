@@ -1,0 +1,3 @@
+export const CONTRACT_ADDRESS = "ST30VGN68PSGVWGNMD0HH2WQMM5T486EK3WBNTHCY";
+export const CONTRACT_NAME = "rps";
+export const NETWORK = "testnet";
