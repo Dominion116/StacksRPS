@@ -279,3 +279,6 @@ body {
 .card-action.reveal:hover { background: #fff; box-shadow: 0 0 15px rgba(0,245,255,0.4); }
 .card-waiting { font-family: var(--font-mono); font-size: 0.65rem; color: var(--muted); letter-spacing: 0.1em; animation: pulse 2s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* ── Lobby fixes ── */
+.game-card.status-2 { opacity: 1; }
