@@ -40,6 +40,12 @@ function hexToUint8Array(hex: string): Uint8Array {
   return arr;
 }
 
+function uint8ArrayToHex(arr: Uint8Array): string {
+  return Array.from(arr)
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 type Arg = { type: "uint"; value: string } | { type: "buff"; value: string } | { type: "principal"; value: string };
 
 function buildCV(arg: Arg) {
@@ -63,11 +69,12 @@ export function callContract(functionName: string, args: Arg[]): Promise<string>
 }
 
 export async function readContract(functionName: string, args: Arg[]): Promise<any> {
-  // Use Hiro API directly to avoid any SDK serialization issues
-  const { serializeCV } = await import("@stacks/transactions");
+  const { serializeCV, deserializeCV } = await import("@stacks/transactions");
+
   const serializedArgs = args.map(a => {
     const cv = buildCV(a);
-    return "0x" + Buffer.from(serializeCV(cv)).toString("hex");
+    const bytes = serializeCV(cv); // returns Uint8Array in browser (no Buffer needed)
+    return "0x" + uint8ArrayToHex(bytes);
   });
 
   const response = await fetch(
@@ -82,7 +89,6 @@ export async function readContract(functionName: string, args: Arg[]): Promise<a
   const data = await response.json();
   if (!data.okay) throw new Error(`Contract read failed: ${JSON.stringify(data)}`);
 
-  const { deserializeCV } = await import("@stacks/transactions");
   const resultBytes = hexToUint8Array(data.result.slice(2));
   const cv = deserializeCV(resultBytes);
   return cvToJSON(cv).value;
