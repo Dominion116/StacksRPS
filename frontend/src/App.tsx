@@ -226,7 +226,7 @@ function GameLobby({ games, loading, onRefresh, onJoin, onReveal, walletAddress 
       {loading && games.length === 0 ? (
         <div className="lobby-loading"><div className="spinner-sm" />FETCHING GAMES…</div>
       ) : games.length === 0 ? (
-        <div className="lobby-empty">No games yet — create the first one!</div>
+        <div className="lobby-empty">No finished games yet — be the first to play!</div>
       ) : (
         <div className="lobby-cards">
           {games.map(g => (
