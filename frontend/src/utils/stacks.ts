@@ -1,11 +1,14 @@
 import { AppConfig, UserSession, showConnect, openContractCall } from "@stacks/connect";
 import { StacksMainnet } from "@stacks/network";
-import { callReadOnlyFunction, bufferCV, uintCV, principalCV, cvToJSON } from "@stacks/transactions";
+import { bufferCV, uintCV, principalCV, cvToJSON } from "@stacks/transactions";
 import { CONTRACT_ADDRESS, CONTRACT_NAME } from "./contract";
 
 const appConfig = new AppConfig(["store_write", "publish_data"]);
 export const userSession = new UserSession({ appConfig });
 const network = new StacksMainnet();
+
+// Use Vite proxy to avoid CORS — /hiro-api/* proxies to https://api.hiro.so/*
+const HIRO_BASE = "/hiro-api";
 
 export interface WalletState { address: string; }
 
@@ -46,7 +49,10 @@ function uint8ArrayToHex(arr: Uint8Array): string {
     .join("");
 }
 
-type Arg = { type: "uint"; value: string } | { type: "buff"; value: string } | { type: "principal"; value: string };
+type Arg =
+  | { type: "uint"; value: string }
+  | { type: "buff"; value: string }
+  | { type: "principal"; value: string };
 
 function buildCV(arg: Arg) {
   if (arg.type === "uint") return uintCV(BigInt(arg.value));
@@ -73,12 +79,12 @@ export async function readContract(functionName: string, args: Arg[]): Promise<a
 
   const serializedArgs = args.map(a => {
     const cv = buildCV(a);
-    const bytes = serializeCV(cv); // returns Uint8Array in browser (no Buffer needed)
+    const bytes = serializeCV(cv); // Uint8Array in browser — no Buffer needed
     return "0x" + uint8ArrayToHex(bytes);
   });
 
   const response = await fetch(
-    `https://api.hiro.so/v2/contracts/call-read/${CONTRACT_ADDRESS}/${CONTRACT_NAME}/${functionName}`,
+    `${HIRO_BASE}/v2/contracts/call-read/${CONTRACT_ADDRESS}/${CONTRACT_NAME}/${functionName}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -86,10 +92,44 @@ export async function readContract(functionName: string, args: Arg[]): Promise<a
     }
   );
 
+  if (response.status === 429) {
+    // Rate limited — back off 1s and retry once
+    await new Promise(r => setTimeout(r, 1000));
+    return readContract(functionName, args);
+  }
+
   const data = await response.json();
   if (!data.okay) throw new Error(`Contract read failed: ${JSON.stringify(data)}`);
 
   const resultBytes = hexToUint8Array(data.result.slice(2));
   const cv = deserializeCV(resultBytes);
   return cvToJSON(cv).value;
+}
+
+/**
+ * Fetch multiple contract reads in small batches to avoid 429 rate limiting.
+ * batchSize=5 concurrent requests, delayMs=300ms between batches.
+ */
+export async function readContractBatch(
+  functionName: string,
+  argsList: Arg[][],
+  batchSize = 5,
+  delayMs = 300
+): Promise<(any | null)[]> {
+  const results: (any | null)[] = [];
+
+  for (let i = 0; i < argsList.length; i += batchSize) {
+    const batch = argsList.slice(i, i + batchSize);
+    const batchResults = await Promise.allSettled(
+      batch.map(args => readContract(functionName, args))
+    );
+    for (const r of batchResults) {
+      results.push(r.status === "fulfilled" ? r.value : null);
+    }
+    if (i + batchSize < argsList.length) {
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+
+  return results;
 }
