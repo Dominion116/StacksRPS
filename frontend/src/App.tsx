@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { makeCommit } from "./utils/crypto";
 import { connectWallet, disconnectWallet, getWalletState, callContract, readContract, WalletState } from "./utils/stacks";
 import { CONTRACT_ADDRESS, CONTRACT_NAME } from "./utils/contract";
@@ -6,10 +6,14 @@ import { CONTRACT_ADDRESS, CONTRACT_NAME } from "./utils/contract";
 type Screen = "home" | "create" | "join" | "game" | "reveal" | "result";
 type Move = "rock" | "paper" | "scissors";
 interface GameState { gameId: number | null; move: Move | null; salt: string | null; commit: string | null; status: number | null; winner: string | null; p1Move: number; p2Move: number; }
+interface LiveGame { id: number; p1: string; p2: string | null; status: number; p1Move: number; p2Move: number; winner: string | null; }
 
 const MOVE_ICONS: Record<Move, string> = { rock: "✊", paper: "✋", scissors: "✌️" };
 const MOVE_NUMS: Record<Move, number> = { rock: 1, paper: 2, scissors: 3 };
 const NUM_MOVES: Record<number, Move> = { 1: "rock", 2: "paper", 3: "scissors" };
+
+const STATUS_LABEL: Record<number, string> = { 0: "WAITING", 1: "ACTIVE", 2: "DONE" };
+const STATUS_COLOR: Record<number, string> = { 0: "var(--yellow)", 1: "var(--cyan)", 2: "var(--muted)" };
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("home");
@@ -22,10 +26,43 @@ export default function App() {
   const [stats, setStats] = useState<{ wins: number; losses: number; draws: number } | null>(null);
   const [glitch, setGlitch] = useState(false);
   const [txId, setTxId] = useState<string | null>(null);
+  const [liveGames, setLiveGames] = useState<LiveGame[]>([]);
+  const [loadingGames, setLoadingGames] = useState(false);
 
   useEffect(() => { setGlitch(true); const t = setTimeout(() => setGlitch(false), 400); return () => clearTimeout(t); }, [screen]);
   useEffect(() => { const w = getWalletState(); if (w) setWallet(w); }, []);
   useEffect(() => { if (wallet?.address) loadStats(wallet.address); }, [wallet?.address]);
+
+  const fetchLiveGames = useCallback(async () => {
+    setLoadingGames(true);
+    try {
+      const totalResult = await readContract("get-total-games", []);
+      const total = Number(totalResult ?? 0);
+      if (total === 0) { setLiveGames([]); setLoadingGames(false); return; }
+      const start = Math.max(0, total - 10);
+      const fetched: LiveGame[] = [];
+      for (let i = total - 1; i >= start; i--) {
+        try {
+          const g = await readContract("get-game", [{ type: "uint", value: i.toString() }]);
+          if (g) fetched.push({
+            id: i,
+            p1: g.p1?.value ?? "",
+            p2: g.p2?.value?.value ?? null,
+            status: Number(g.status?.value ?? 0),
+            p1Move: Number(g["p1-move"]?.value ?? 0),
+            p2Move: Number(g["p2-move"]?.value ?? 0),
+            winner: g.winner?.value?.value ?? null,
+          });
+        } catch {}
+      }
+      setLiveGames(fetched);
+    } catch {}
+    setLoadingGames(false);
+  }, []);
+
+  useEffect(() => {
+    if (screen === "home") { fetchLiveGames(); const t = setInterval(fetchLiveGames, 15000); return () => clearInterval(t); }
+  }, [screen, fetchLiveGames]);
 
   async function loadStats(address: string) {
     try {
@@ -85,6 +122,9 @@ export default function App() {
 
   function reset() { setGame({ gameId: null, move: null, salt: null, commit: null, status: null, winner: null, p1Move: 0, p2Move: 0 }); setJoinId(""); setRevealGameId(""); setError(""); setTxId(null); setScreen("home"); }
 
+  function jumpToJoin(id: number) { setJoinId(id.toString()); setScreen("join"); }
+  function jumpToReveal(id: number) { setRevealGameId(id.toString()); setScreen("reveal"); }
+
   const currentId = game.gameId ?? (revealGameId ? Number(revealGameId) : null);
 
   return (
@@ -107,7 +147,7 @@ export default function App() {
       <main className="main">
         {error && <div className="error-banner">⚠ {error}<button onClick={() => setError("")}>×</button></div>}
         {txId && <div className="tx-banner">TX: <a href={`https://explorer.hiro.so/txid/${txId}?chain=testnet`} target="_blank" rel="noreferrer">{txId.slice(0,10)}…{txId.slice(-6)} ↗</a><button onClick={() => setTxId(null)}>×</button></div>}
-        {screen === "home"   && <HomeScreen wallet={wallet} onNavigate={setScreen} onConnect={handleConnect} loading={loading} />}
+        {screen === "home"   && <HomeScreen wallet={wallet} onNavigate={setScreen} onConnect={handleConnect} loading={loading} liveGames={liveGames} loadingGames={loadingGames} onRefresh={fetchLiveGames} onJoin={jumpToJoin} onReveal={jumpToReveal} walletAddress={wallet?.address ?? null} />}
         {screen === "create" && <MoveSelect title="PICK YOUR MOVE" subtitle="Stays hidden until both players reveal" onSelect={handleCreateGame} onBack={() => setScreen("home")} loading={loading} />}
         {screen === "join"   && <JoinScreen joinId={joinId} setJoinId={setJoinId} onSelect={handleJoinGame} onBack={() => setScreen("home")} loading={loading} />}
         {screen === "game"   && <GameCreatedScreen game={game} onReveal={() => setScreen("reveal")} onHome={reset} />}
@@ -123,7 +163,108 @@ export default function App() {
   );
 }
 
-function HomeScreen({ wallet, onNavigate, onConnect, loading }: any) {
+// ── Game Lobby ────────────────────────────────────────────────────────────────
+
+function GameLobby({ games, loading, onRefresh, onJoin, onReveal, walletAddress }: {
+  games: LiveGame[]; loading: boolean; onRefresh: () => void;
+  onJoin: (id: number) => void; onReveal: (id: number) => void;
+  walletAddress: string | null;
+}) {
+  function addrShort(a: string) { return a ? `${a.slice(0,6)}…${a.slice(-4)}` : ""; }
+
+  function getAction(g: LiveGame) {
+    if (!walletAddress) return null;
+    const isP1 = g.p1 === walletAddress;
+    const isP2 = g.p2 === walletAddress;
+    if (g.status === 0 && !isP1) return <button className="card-action join" onClick={() => onJoin(g.id)}>JOIN →</button>;
+    if (g.status === 1 && (isP1 || isP2)) {
+      const hasRevealed = (isP1 && g.p1Move !== 0) || (isP2 && g.p2Move !== 0);
+      if (!hasRevealed) return <button className="card-action reveal" onClick={() => onReveal(g.id)}>REVEAL →</button>;
+      return <span className="card-waiting">WAITING FOR OPPONENT</span>;
+    }
+    return null;
+  }
+
+  function getReadyState(g: LiveGame) {
+    if (g.status === 2) {
+      const p1m = g.p1Move ? NUM_MOVES[g.p1Move] : null;
+      const p2m = g.p2Move ? NUM_MOVES[g.p2Move] : null;
+      return (
+        <div className="card-moves-done">
+          {p1m && <span>{MOVE_ICONS[p1m]}</span>}
+          <span className="card-vs">vs</span>
+          {p2m && <span>{MOVE_ICONS[p2m]}</span>}
+          {g.winner && <span className="card-winner-tag">🏆 {addrShort(g.winner)}</span>}
+          {!g.winner && g.status === 2 && <span className="card-draw-tag">🤝 DRAW</span>}
+        </div>
+      );
+    }
+    const p1ready = g.p1Move !== 0;
+    const p2ready = g.p2Move !== 0;
+    return (
+      <div className="card-reveal-status">
+        <div className={`card-player-dot ${p1ready ? "ready" : "pending"}`}>
+          <span>P1</span>
+          <span className="dot-icon">{p1ready ? "✓" : "…"}</span>
+        </div>
+        <div className={`card-player-dot ${p2ready ? "ready" : (g.p2 ? "pending" : "empty")}`}>
+          <span>P2</span>
+          <span className="dot-icon">{g.p2 ? (p2ready ? "✓" : "…") : "—"}</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="lobby">
+      <div className="lobby-header">
+        <h3>RECENT GAMES</h3>
+        <button className="btn-refresh" onClick={onRefresh} disabled={loading}>
+          {loading ? "⟳" : "↻ REFRESH"}
+        </button>
+      </div>
+      {loading && games.length === 0 ? (
+        <div className="lobby-loading"><div className="spinner-sm" />FETCHING GAMES…</div>
+      ) : games.length === 0 ? (
+        <div className="lobby-empty">No games yet — create the first one!</div>
+      ) : (
+        <div className="lobby-cards">
+          {games.map(g => (
+            <div key={g.id} className={`game-card status-${g.status}`}>
+              <div className="card-top">
+                <div className="card-id">#{g.id}</div>
+                <div className="card-status" style={{ color: STATUS_COLOR[g.status] }}>
+                  ● {STATUS_LABEL[g.status]}
+                </div>
+              </div>
+              <div className="card-players">
+                <div className="card-player">
+                  <span className="cp-label">P1</span>
+                  <span className="cp-addr">{addrShort(g.p1)}</span>
+                  {walletAddress === g.p1 && <span className="you-tag">YOU</span>}
+                </div>
+                <span className="card-vs-mid">VS</span>
+                <div className="card-player">
+                  <span className="cp-label">P2</span>
+                  <span className="cp-addr">{g.p2 ? addrShort(g.p2) : "—"}</span>
+                  {walletAddress === g.p2 && <span className="you-tag">YOU</span>}
+                </div>
+              </div>
+              {getReadyState(g)}
+              <div className="card-footer">
+                {getAction(g)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Screens ───────────────────────────────────────────────────────────────────
+
+function HomeScreen({ wallet, onNavigate, onConnect, loading, liveGames, loadingGames, onRefresh, onJoin, onReveal, walletAddress }: any) {
   return (
     <div className="screen home-screen">
       <div className="hero">
@@ -143,6 +284,7 @@ function HomeScreen({ wallet, onNavigate, onConnect, loading }: any) {
           <button className="btn-primary btn-xl" onClick={onConnect} disabled={loading}>{loading ? "CONNECTING…" : "CONNECT WALLET"}</button>
         </div>
       )}
+      <GameLobby games={liveGames} loading={loadingGames} onRefresh={onRefresh} onJoin={onJoin} onReveal={onReveal} walletAddress={walletAddress} />
       <div className="how-it-works">
         <h3>HOW IT WORKS</h3>
         <div className="steps">
