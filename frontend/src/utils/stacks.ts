@@ -1,18 +1,18 @@
 import { AppConfig, UserSession, showConnect, openContractCall } from "@stacks/connect";
-import { StacksTestnet } from "@stacks/network";
+import { StacksMainnet } from "@stacks/network";
 import { callReadOnlyFunction, bufferCV, uintCV, principalCV, cvToJSON } from "@stacks/transactions";
 import { CONTRACT_ADDRESS, CONTRACT_NAME } from "./contract";
 
 const appConfig = new AppConfig(["store_write", "publish_data"]);
 export const userSession = new UserSession({ appConfig });
-const network = new StacksTestnet();
+const network = new StacksMainnet();
 
 export interface WalletState { address: string; }
 
 export function getWalletState(): WalletState | null {
   if (!userSession.isUserSignedIn()) return null;
   const data = userSession.loadUserData();
-  return { address: data.profile.stxAddress.testnet };
+  return { address: data.profile.stxAddress.mainnet };
 }
 
 export function connectWallet(): Promise<WalletState> {

@@ -146,7 +146,7 @@ export default function App() {
       </header>
       <main className="main">
         {error && <div className="error-banner">⚠ {error}<button onClick={() => setError("")}>×</button></div>}
-        {txId && <div className="tx-banner">TX: <a href={`https://explorer.hiro.so/txid/${txId}?chain=testnet`} target="_blank" rel="noreferrer">{txId.slice(0,10)}…{txId.slice(-6)} ↗</a><button onClick={() => setTxId(null)}>×</button></div>}
+        {txId && <div className="tx-banner">TX: <a href={`https://explorer.hiro.so/txid/${txId}`} target="_blank" rel="noreferrer">{txId.slice(0,10)}…{txId.slice(-6)} ↗</a><button onClick={() => setTxId(null)}>×</button></div>}
         {screen === "home"   && <HomeScreen wallet={wallet} onNavigate={setScreen} onConnect={handleConnect} loading={loading} liveGames={liveGames} loadingGames={loadingGames} onRefresh={fetchLiveGames} onJoin={jumpToJoin} onReveal={jumpToReveal} walletAddress={wallet?.address ?? null} />}
         {screen === "create" && <MoveSelect title="PICK YOUR MOVE" subtitle="Stays hidden until both players reveal" onSelect={handleCreateGame} onBack={() => setScreen("home")} loading={loading} />}
         {screen === "join"   && <JoinScreen joinId={joinId} setJoinId={setJoinId} onSelect={handleJoinGame} onBack={() => setScreen("home")} loading={loading} />}
@@ -157,7 +157,7 @@ export default function App() {
       <footer className="footer">
         <span>STACKS TESTNET</span>
         <span className="footer-contract">{CONTRACT_ADDRESS}.{CONTRACT_NAME}</span>
-        <a href={`https://explorer.hiro.so/address/${CONTRACT_ADDRESS}.${CONTRACT_NAME}?chain=testnet`} target="_blank" rel="noreferrer">EXPLORER ↗</a>
+        <a href={`https://explorer.hiro.so/address/${CONTRACT_ADDRESS}.${CONTRACT_NAME}`} target="_blank" rel="noreferrer">EXPLORER ↗</a>
       </footer>
     </div>
   );
