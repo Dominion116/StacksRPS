@@ -282,3 +282,20 @@ body {
 
 /* ── Lobby fixes ── */
 .game-card.status-2 { opacity: 1; }
+
+/* ── Player reveal rows ── */
+.card-player-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0.6rem; background: var(--bg2); border-radius: 3px; }
+.cpr-left { display: flex; align-items: center; gap: 0.4rem; min-width: 0; flex: 1; }
+.cpr-status { display: flex; align-items: center; flex-shrink: 0; }
+.cpr-move { display: flex; align-items: center; gap: 0.3rem; font-size: 1.1rem; }
+.cpr-move-name { font-family: var(--font-ui); font-size: 0.65rem; letter-spacing: 0.1em; color: var(--text); }
+.cpr-committed { font-family: var(--font-mono); font-size: 0.6rem; color: var(--yellow); letter-spacing: 0.05em; }
+.cpr-none { font-family: var(--font-mono); font-size: 0.6rem; color: var(--border); letter-spacing: 0.05em; }
+.cpr-status.revealed { }
+.cpr-status.committed { }
+.cpr-status.empty { opacity: 0.5; }
+
+.card-result { font-family: var(--font-ui); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.15em; padding: 0.4rem 0.75rem; border-radius: 3px; text-align: center; }
+.card-result.win { background: rgba(0,255,136,0.1); color: var(--green); border: 1px solid rgba(0,255,136,0.3); }
+.card-result.win.you-won { background: rgba(0,255,136,0.2); box-shadow: 0 0 12px rgba(0,255,136,0.2); }
+.card-result.draw { background: rgba(245,230,66,0.1); color: var(--yellow); border: 1px solid rgba(245,230,66,0.3); }
