@@ -218,7 +218,7 @@ function GameLobby({ games, loading, onRefresh, onJoin, onReveal, walletAddress 
   return (
     <div className="lobby">
       <div className="lobby-header">
-        <h3>RECENT GAMES</h3>
+        <h3>FINISHED GAMES</h3>
         <button className="btn-refresh" onClick={onRefresh} disabled={loading}>
           {loading ? "⟳" : "↻ REFRESH"}
         </button>
