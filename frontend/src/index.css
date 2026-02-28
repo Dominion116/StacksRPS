@@ -225,3 +225,57 @@ body {
   .footer-contract { display: none; }
   .hero-title { font-size: 3rem; }
 }
+
+/* ── Game Lobby ── */
+.lobby { width: 100%; margin-top: 0.5rem; }
+
+.lobby-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.lobby-header h3 { font-family: var(--font-ui); font-size: 0.7rem; letter-spacing: 0.3em; color: var(--muted); }
+
+.btn-refresh { background: none; border: 1px solid var(--border); color: var(--muted); font-family: var(--font-mono); font-size: 0.7rem; padding: 0.3rem 0.75rem; border-radius: 3px; cursor: pointer; transition: all 0.15s; letter-spacing: 0.1em; }
+.btn-refresh:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
+.btn-refresh:disabled { opacity: 0.4; }
+
+.lobby-loading { display: flex; align-items: center; gap: 0.75rem; color: var(--muted); font-size: 0.75rem; padding: 1.5rem 0; letter-spacing: 0.1em; }
+.lobby-empty { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2rem 0; letter-spacing: 0.1em; border: 1px dashed var(--border); border-radius: 4px; }
+
+@keyframes spin-sm { to { transform: rotate(360deg); } }
+.spinner-sm { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--cyan); border-radius: 50%; animation: spin-sm 0.8s linear infinite; flex-shrink: 0; }
+
+.lobby-cards { display: flex; flex-direction: column; gap: 0.6rem; }
+
+.game-card { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; transition: border-color 0.15s; }
+.game-card.status-0 { border-left: 3px solid var(--yellow); }
+.game-card.status-1 { border-left: 3px solid var(--cyan); }
+.game-card.status-2 { border-left: 3px solid var(--muted); opacity: 0.7; }
+
+.card-top { display: flex; align-items: center; justify-content: space-between; }
+.card-id { font-family: var(--font-hd); font-size: 1.2rem; color: var(--muted); letter-spacing: 0.05em; }
+.card-status { font-family: var(--font-ui); font-size: 0.6rem; letter-spacing: 0.2em; }
+
+.card-players { display: flex; align-items: center; gap: 0.75rem; }
+.card-player { display: flex; align-items: center; gap: 0.4rem; flex: 1; min-width: 0; }
+.cp-label { font-family: var(--font-ui); font-size: 0.6rem; letter-spacing: 0.1em; color: var(--muted); flex-shrink: 0; }
+.cp-addr { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-vs-mid { font-family: var(--font-hd); font-size: 0.9rem; color: var(--border); flex-shrink: 0; }
+.you-tag { font-family: var(--font-ui); font-size: 0.55rem; letter-spacing: 0.1em; color: var(--cyan); border: 1px solid var(--cyan); border-radius: 3px; padding: 0.1rem 0.3rem; flex-shrink: 0; }
+
+.card-reveal-status { display: flex; gap: 1rem; }
+.card-player-dot { display: flex; align-items: center; gap: 0.4rem; font-family: var(--font-mono); font-size: 0.7rem; color: var(--muted); }
+.card-player-dot.ready .dot-icon { color: var(--green); }
+.card-player-dot.pending .dot-icon { color: var(--yellow); }
+.card-player-dot.empty .dot-icon { color: var(--border); }
+
+.card-moves-done { display: flex; align-items: center; gap: 0.75rem; font-size: 1.3rem; }
+.card-vs { font-family: var(--font-hd); font-size: 0.8rem; color: var(--border); }
+.card-winner-tag { font-family: var(--font-mono); font-size: 0.65rem; color: var(--green); margin-left: auto; }
+.card-draw-tag { font-family: var(--font-mono); font-size: 0.65rem; color: var(--yellow); margin-left: auto; }
+
+.card-footer { display: flex; justify-content: flex-end; }
+.card-action { border: none; border-radius: 3px; padding: 0.4rem 0.9rem; font-family: var(--font-ui); font-size: 0.65rem; font-weight: 700; letter-spacing: 0.15em; cursor: pointer; transition: all 0.15s; }
+.card-action.join { background: var(--magenta); color: var(--bg); }
+.card-action.join:hover { background: #fff; box-shadow: 0 0 15px rgba(255,0,170,0.4); }
+.card-action.reveal { background: var(--cyan); color: var(--bg); }
+.card-action.reveal:hover { background: #fff; box-shadow: 0 0 15px rgba(0,245,255,0.4); }
+.card-waiting { font-family: var(--font-mono); font-size: 0.65rem; color: var(--muted); letter-spacing: 0.1em; animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
