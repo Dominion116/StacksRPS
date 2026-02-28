@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { makeCommit } from "./utils/crypto";
-import { connectWallet, disconnectWallet, getWalletState, callContract, readContract, WalletState } from "./utils/stacks";
+import { connectWallet, disconnectWallet, getWalletState, callContract, readContract, readContractBatch, WalletState } from "./utils/stacks";
 import { CONTRACT_ADDRESS, CONTRACT_NAME } from "./utils/contract";
 
 type Screen = "home" | "create" | "join" | "game" | "reveal" | "result";
@@ -33,33 +33,48 @@ export default function App() {
   useEffect(() => { const w = getWalletState(); if (w) setWallet(w); }, []);
   useEffect(() => { if (wallet?.address) loadStats(wallet.address); }, [wallet?.address]);
 
-    const fetchLiveGames = useCallback(async () => {
+  const fetchLiveGames = useCallback(async () => {
     console.log("fetchLiveGames called");
     setLoadingGames(true);
     try {
       const totalResult = await readContract("get-total-games", []);
       const total = Number(totalResult ?? 0);
-      console.log("total games:", total); if (total === 0) { setLiveGames([]); setLoadingGames(false); return; }
+      console.log("total games:", total);
+      if (total === 0) { setLiveGames([]); setLoadingGames(false); return; }
+
       const start = Math.max(0, total - 50);
+      // Newest first
       const ids = Array.from({ length: total - start }, (_, i) => total - 1 - i);
-      const results = await Promise.allSettled(
-        ids.map(i =>
-          readContract("get-game", [{ type: "uint", value: i.toString() }]).then(g =>
-            g ? ({ id: i, p1: g.p1?.value ?? "", p2: g.p2?.value?.value ?? null, status: Number(g.status?.value ?? 0), p1Move: Number(g["p1-move"]?.value ?? 0), p2Move: Number(g["p2-move"]?.value ?? 0), winner: g.winner?.value?.value ?? null } as LiveGame) : null
-          )
-        )
-      );
-      const fetched = results
-        .filter((r): r is PromiseFulfilledResult<LiveGame> => r.status === "fulfilled" && r.value !== null)
-        .map(r => r.value)
-        .filter(g => g.status === 2 && g.winner !== null);
-      console.log("fetched finished games:", fetched.length, fetched); setLiveGames(fetched);
-    } catch(e) { console.error("fetchLiveGames error:", e); }
+      const argsList = ids.map(i => [{ type: "uint" as const, value: i.toString() }]);
+
+      // Batched — 5 concurrent requests, 300ms between batches, avoids 429
+      const rawResults = await readContractBatch("get-game", argsList, 5, 300);
+
+      const fetched: LiveGame[] = rawResults
+        .map((g, idx) => {
+          if (!g) return null;
+          return {
+            id: ids[idx],
+            p1: g.p1?.value ?? "",
+            p2: g.p2?.value?.value ?? null,
+            status: Number(g.status?.value ?? 0),
+            p1Move: Number(g["p1-move"]?.value ?? 0),
+            p2Move: Number(g["p2-move"]?.value ?? 0),
+            winner: g.winner?.value?.value ?? null,
+          } as LiveGame;
+        })
+        .filter((g): g is LiveGame => g !== null && g.status === 2);
+
+      console.log("fetched finished games:", fetched.length, fetched);
+      setLiveGames(fetched);
+    } catch (e) {
+      console.error("fetchLiveGames error:", e);
+    }
     setLoadingGames(false);
   }, []);
 
   useEffect(() => {
-    if (screen === "home") { fetchLiveGames(); const t = setInterval(fetchLiveGames, 15000); return () => clearInterval(t); }
+    if (screen === "home") { fetchLiveGames(); const t = setInterval(fetchLiveGames, 30000); return () => clearInterval(t); }
   }, [screen, fetchLiveGames]);
 
   async function loadStats(address: string) {
