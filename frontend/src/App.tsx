@@ -34,11 +34,12 @@ export default function App() {
   useEffect(() => { if (wallet?.address) loadStats(wallet.address); }, [wallet?.address]);
 
     const fetchLiveGames = useCallback(async () => {
+    console.log("fetchLiveGames called");
     setLoadingGames(true);
     try {
       const totalResult = await readContract("get-total-games", []);
       const total = Number(totalResult ?? 0);
-      if (total === 0) { setLiveGames([]); setLoadingGames(false); return; }
+      console.log("total games:", total); if (total === 0) { setLiveGames([]); setLoadingGames(false); return; }
       const start = Math.max(0, total - 50);
       const ids = Array.from({ length: total - start }, (_, i) => total - 1 - i);
       const results = await Promise.allSettled(
@@ -52,8 +53,8 @@ export default function App() {
         .filter((r): r is PromiseFulfilledResult<LiveGame> => r.status === "fulfilled" && r.value !== null)
         .map(r => r.value)
         .filter(g => g.status === 2 && g.winner !== null);
-      setLiveGames(fetched);
-    } catch(e) { console.error(e); }
+      console.log("fetched finished games:", fetched.length, fetched); setLiveGames(fetched);
+    } catch(e) { console.error("fetchLiveGames error:", e); }
     setLoadingGames(false);
   }, []);
 
