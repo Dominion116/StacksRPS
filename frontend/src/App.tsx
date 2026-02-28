@@ -55,7 +55,7 @@ export default function App() {
           });
         } catch {}
       }
-      setLiveGames(fetched);
+      setLiveGames(fetched.filter(g => g.status === 2 && g.winner !== null));
     } catch {}
     setLoadingGames(false);
   }, []);
