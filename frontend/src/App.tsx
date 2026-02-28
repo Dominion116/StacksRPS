@@ -33,30 +33,27 @@ export default function App() {
   useEffect(() => { const w = getWalletState(); if (w) setWallet(w); }, []);
   useEffect(() => { if (wallet?.address) loadStats(wallet.address); }, [wallet?.address]);
 
-  const fetchLiveGames = useCallback(async () => {
+    const fetchLiveGames = useCallback(async () => {
     setLoadingGames(true);
     try {
       const totalResult = await readContract("get-total-games", []);
       const total = Number(totalResult ?? 0);
       if (total === 0) { setLiveGames([]); setLoadingGames(false); return; }
-      const start = Math.max(0, total - 10);
-      const fetched: LiveGame[] = [];
-      for (let i = total - 1; i >= start; i--) {
-        try {
-          const g = await readContract("get-game", [{ type: "uint", value: i.toString() }]);
-          if (g) fetched.push({
-            id: i,
-            p1: g.p1?.value ?? "",
-            p2: g.p2?.value?.value ?? null,
-            status: Number(g.status?.value ?? 0),
-            p1Move: Number(g["p1-move"]?.value ?? 0),
-            p2Move: Number(g["p2-move"]?.value ?? 0),
-            winner: g.winner?.value?.value ?? null,
-          });
-        } catch {}
-      }
-      setLiveGames(fetched.filter(g => g.status === 2 && g.winner !== null));
-    } catch {}
+      const start = Math.max(0, total - 50);
+      const ids = Array.from({ length: total - start }, (_, i) => total - 1 - i);
+      const results = await Promise.allSettled(
+        ids.map(i =>
+          readContract("get-game", [{ type: "uint", value: i.toString() }]).then(g =>
+            g ? ({ id: i, p1: g.p1?.value ?? "", p2: g.p2?.value?.value ?? null, status: Number(g.status?.value ?? 0), p1Move: Number(g["p1-move"]?.value ?? 0), p2Move: Number(g["p2-move"]?.value ?? 0), winner: g.winner?.value?.value ?? null } as LiveGame) : null
+          )
+        )
+      );
+      const fetched = results
+        .filter((r): r is PromiseFulfilledResult<LiveGame> => r.status === "fulfilled" && r.value !== null)
+        .map(r => r.value)
+        .filter(g => g.status === 2 && g.winner !== null);
+      setLiveGames(fetched);
+    } catch(e) { console.error(e); }
     setLoadingGames(false);
   }, []);
 
