@@ -1,44 +1,24 @@
-import {
-  AppConfig,
-  UserSession,
-  showConnect,
-  openContractCall,
-} from "@stacks/connect";
-import {
-  StacksTestnet,
-} from "@stacks/network";
-import {
-  callReadOnlyFunction,
-  bufferCV,
-  uintCV,
-  principalCV,
-  cvToJSON,
-  hexToCV,
-} from "@stacks/transactions";
+import { AppConfig, UserSession, showConnect, openContractCall } from "@stacks/connect";
+import { StacksTestnet } from "@stacks/network";
+import { callReadOnlyFunction, bufferCV, uintCV, principalCV, cvToJSON } from "@stacks/transactions";
 import { CONTRACT_ADDRESS, CONTRACT_NAME } from "./contract";
 
 const appConfig = new AppConfig(["store_write", "publish_data"]);
 export const userSession = new UserSession({ appConfig });
 const network = new StacksTestnet();
 
-export interface WalletState {
-  address: string;
-  pubKey: string;
-}
+export interface WalletState { address: string; }
 
 export function getWalletState(): WalletState | null {
   if (!userSession.isUserSignedIn()) return null;
   const data = userSession.loadUserData();
-  return {
-    address: data.profile.stxAddress.testnet,
-    pubKey: data.appPrivateKey,
-  };
+  return { address: data.profile.stxAddress.testnet };
 }
 
 export function connectWallet(): Promise<WalletState> {
   return new Promise((resolve, reject) => {
     showConnect({
-      appDetails: { name: "RPS Chain", icon: "/favicon.ico" },
+      appDetails: { name: "RPS Chain", icon: "/favicon.svg" },
       redirectTo: "/",
       userSession,
       onFinish: () => {
@@ -46,35 +26,22 @@ export function connectWallet(): Promise<WalletState> {
         if (state) resolve(state);
         else reject(new Error("Could not load wallet state"));
       },
-      onCancel: () => reject(new Error("Wallet connection cancelled")),
+      onCancel: () => reject(new Error("Cancelled")),
     });
   });
 }
 
-export function disconnectWallet() {
-  userSession.signUserOut();
+export function disconnectWallet() { userSession.signUserOut(); }
+
+type Arg = { type: "uint"; value: string } | { type: "buff"; value: string } | { type: "principal"; value: string };
+
+function buildCV(arg: Arg) {
+  if (arg.type === "uint") return uintCV(BigInt(arg.value));
+  if (arg.type === "buff") return bufferCV(Buffer.from(arg.value, "hex"));
+  return principalCV(arg.value);
 }
 
-type ArgType =
-  | { type: "uint"; value: string }
-  | { type: "buff"; value: string }
-  | { type: "principal"; value: string };
-
-function buildCV(arg: ArgType) {
-  switch (arg.type) {
-    case "uint":
-      return uintCV(BigInt(arg.value));
-    case "buff":
-      return bufferCV(Buffer.from(arg.value, "hex"));
-    case "principal":
-      return principalCV(arg.value);
-  }
-}
-
-export function callContract(
-  functionName: string,
-  args: ArgType[]
-): Promise<string> {
+export function callContract(functionName: string, args: Arg[]): Promise<string> {
   return new Promise((resolve, reject) => {
     openContractCall({
       network,
@@ -88,10 +55,7 @@ export function callContract(
   });
 }
 
-export async function readContract(
-  functionName: string,
-  args: ArgType[]
-): Promise<any> {
+export async function readContract(functionName: string, args: Arg[]): Promise<any> {
   const result = await callReadOnlyFunction({
     network,
     contractAddress: CONTRACT_ADDRESS,
