@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@esbuild-plugins/node-globals-polyfill": "^0.2.3",
     "@stacks/connect": "^7.10.2",
     "@stacks/network": "^6.17.0",
     "@stacks/transactions": "^6.17.0",
