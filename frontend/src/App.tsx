@@ -155,7 +155,7 @@ export default function App() {
         {screen === "result" && <ResultScreen game={game} wallet={wallet} onPlayAgain={reset} onRefresh={() => currentId !== null && loadGameResult(currentId)} />}
       </main>
       <footer className="footer">
-        <span>STACKS TESTNET</span>
+        <span>STACKS MAINNET</span>
         <span className="footer-contract">{CONTRACT_ADDRESS}.{CONTRACT_NAME}</span>
         <a href={`https://explorer.hiro.so/address/${CONTRACT_ADDRESS}.${CONTRACT_NAME}`} target="_blank" rel="noreferrer">EXPLORER ↗</a>
       </footer>
